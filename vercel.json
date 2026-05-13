@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["icn1"],
+  "functions": {
+    "src/app/api/extract/route.ts": { "maxDuration": 30 },
+    "src/app/api/match/route.ts": { "maxDuration": 15 },
+    "src/app/api/recommend/route.ts": { "maxDuration": 30 },
+    "src/app/api/rules/execute/route.ts": { "maxDuration": 15 },
+    "src/app/api/rules/simulate/route.ts": { "maxDuration": 30 },
+    "src/app/api/draft/route.ts": { "maxDuration": 15 },
+    "src/app/api/admin/seed/route.ts": { "maxDuration": 60 }
+  }
+}

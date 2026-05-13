@@ -26,24 +26,26 @@
 
 ---
 
-## 1. 빠른 실행 (5분)
+## 1. 빠른 실행 (로컬, 5분)
+
+이 데모는 **PostgreSQL**을 사용합니다. 로컬에서 띄우려면 Postgres 인스턴스가 필요해요.
+가장 쉬운 방법은 Vercel Postgres 또는 Neon 무료 인스턴스 URL을 그대로 쓰는 것입니다.
 
 ```bash
 cd mobidays-demo
-npm install
-npx prisma db push                  # 스키마 적용
-npx tsx prisma/seed.ts              # 시드 데이터 적재
+cp .env.example .env.local         # DATABASE_URL 채워주기
+npm install                         # postinstall에서 prisma generate 자동 실행
+npm run db:push                     # 스키마 적용
+npm run seed                        # 시드 데이터 적재
 npm run dev                         # http://localhost:3000
 ```
 
 이후 시드를 초기화하고 싶다면:
 
-```bash
-npx prisma db push --force-reset --accept-data-loss
-npx tsx prisma/seed.ts
-```
+- 웹 UI: `/admin/seed` 페이지의 [데이터 초기화] 버튼
+- CLI: `npm run db:reset`
 
-> 환경 변수 없음 — 모든 LLM 호출은 **결정론적 mock**으로 대체됩니다. 외부 API 키 불필요.
+> 외부 LLM API 키는 필요 없습니다 — 모든 LLM 호출은 **결정론적 mock**입니다.
 
 ---
 
@@ -163,16 +165,63 @@ Tier 3 — 확률적 매칭
 
 ---
 
-## 7. Vercel 배포 안내
+## 7. Vercel 배포 — 5분 안에 라이브 (Postgres 포함)
 
-본 데모는 로컬 SQLite를 사용하므로, Vercel 배포 시에는 다음 변경이 필요합니다:
+### 1단계 — GitHub repo Import
 
-1. `prisma/schema.prisma` datasource를 PostgreSQL로 변경.
-2. Vercel 환경 변수 `DATABASE_URL` 추가 (Neon / Supabase / Turso libSQL 등).
-3. `package.json`에 `postinstall: prisma generate` 추가.
-4. `vercel.json`에서 API 라우트 `maxDuration` 설정.
+Vercel 대시보드 → **New Project** → GitHub 권한 부여 → `AX-Solution-Team/mobidays-poc` 선택 → **Import**.
 
-`npm run build`로 프로덕션 빌드가 통과하는 것은 이미 확인되어 있습니다.
+Framework는 자동으로 Next.js로 인식됩니다. **Deploy 버튼을 아직 누르지 마세요** — DB 먼저 연결.
+
+### 2단계 — Vercel Postgres 생성 & 연결
+
+1. 같은 프로젝트 페이지에서 **Storage** 탭 → **Create Database** → **Postgres** 선택
+2. 이름 입력 (예: `mobidays-poc-db`), region은 **Singapore (sin1)** 또는 **Seoul (icn1)** 권장
+3. 생성되면 **Connect Project** 클릭 → Vercel이 `DATABASE_URL` + 보조 변수들을 환경변수에 **자동 주입**
+
+### 3단계 — (선택) SEED_SECRET 추가
+
+공개 데모라 누구나 `/admin/seed`로 데이터를 리셋할 수 있게 됩니다. 막고 싶다면:
+
+- Project Settings → Environment Variables → `SEED_SECRET` = `<random-string>` 추가
+
+비워두면 누구나 1-click 리셋 가능 (시연 자유도가 높지만, 누군가 장난칠 위험).
+
+### 4단계 — 첫 배포
+
+이제 **Deploy** 버튼을 누르면 빌드가 시작됩니다. `postinstall: prisma generate`가 자동으로 실행되어 클라이언트가 생성됩니다.
+
+### 5단계 — 스키마 적용 + 시드
+
+배포가 끝나면 DB는 비어있어요. 두 가지 방법 중 하나:
+
+**옵션 A — 로컬 CLI에서 (가장 깔끔)**
+```bash
+# Vercel 환경변수를 로컬 .env.local로 가져오기
+npx vercel link                     # 프로젝트 연결
+npx vercel env pull .env.local      # DATABASE_URL 등 다운로드
+
+# 원격 DB에 스키마 + 시드
+npm run db:push
+npm run seed
+```
+
+**옵션 B — 웹 UI에서**
+
+배포된 URL에서 `/admin/seed` 접속 → [데이터 초기화] 버튼 클릭 (SEED_SECRET 설정 시 토큰 입력).
+※ 단, 이 방법은 스키마는 이미 적용되어 있어야 동작합니다. 옵션 A로 한 번 `db:push`만 돌리고 나머지는 옵션 B로 진행해도 됨.
+
+### 6단계 — 확인
+
+- 배포 URL 접속 → 홈에 22개 광고주, 7개 미팅록 KPI가 보이면 성공
+- `/kb/match` 에서 "삼성전자" 샘플 매칭 라이브 동작 확인
+- `/admin/audit` 에서 룰 실행 시 감사 로그 누적 확인
+
+### 알려진 제약
+
+- **Hobby plan**: 함수 timeout 10초. 추출 파이프라인이 ~2.8초이므로 cold start 더해도 여유. 단 시뮬레이션이 광고주 22개 전체 + cold start 겹치면 빠듯할 수 있어 Pro 권장.
+- **Vercel Postgres 무료 tier**: 256MB 스토리지, 60시간/월 compute. 데모 규모(~1MB)는 충분.
+- **여러 사람이 동시 사용 시**: DB가 공유되므로 한 명의 리셋이 다른 사람 화면에도 영향. 시연 시 1인 1환경이 이상적이라면 Preview Deployment + Branch DB 사용 고려.
 
 ---
 

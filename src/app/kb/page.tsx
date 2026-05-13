@@ -12,6 +12,8 @@ import { PageHeader } from "@/components/page-header";
 import { prisma } from "@/lib/db";
 import { Badge } from "@/components/ui/badge";
 
+export const dynamic = "force-dynamic";
+
 async function getKbStats() {
   const [accounts, aliases, externalIds, docs, mdmQueue] = await Promise.all([
     prisma.account.count(),

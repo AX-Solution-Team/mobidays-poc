@@ -5,16 +5,15 @@
  * records (Salesforce, Sheet:prospects, Sheet:prospects-v2) so the matching
  * demo (`/demo/match`) has realistic examples to resolve.
  *
- * Run with:
- *   npx tsx prisma/seed.ts
+ * Two entry points:
+ *   1. CLI:  `npx tsx prisma/seed.ts`
+ *   2. API:  imported by `/api/admin/seed` route for production reset
  */
 
 import { PrismaClient } from "@prisma/client";
 import { nanoid } from "nanoid";
 
 import { normalizeName, extractDomain } from "../src/lib/mdm/normalize";
-
-const prisma = new PrismaClient();
 
 function id(prefix: string) {
   return `${prefix}_${nanoid(10)}`;
@@ -26,7 +25,11 @@ function daysAgo(d: number) {
   return dt;
 }
 
-async function main() {
+export async function runSeed(prisma: PrismaClient) {
+  return main(prisma);
+}
+
+async function main(prisma: PrismaClient) {
   console.log("🌱  Resetting database…");
   await prisma.ruleExecution.deleteMany();
   await prisma.ruleDefinition.deleteMany();
@@ -1229,11 +1232,16 @@ outputs:
   },
 ];
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+// Standalone CLI entry. Only runs when this file is executed directly
+// (via `npx tsx prisma/seed.ts`), not when imported by API routes.
+if (require.main === module) {
+  const cliPrisma = new PrismaClient();
+  main(cliPrisma)
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await cliPrisma.$disconnect();
+    });
+}

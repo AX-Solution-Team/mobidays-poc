@@ -16,6 +16,8 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { prisma } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 async function getStats() {
   const [
     accountCount,
