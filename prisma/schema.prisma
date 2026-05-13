@@ -1,0 +1,422 @@
+// Prisma schema for Mobidays AI Demo (SQLite)
+// Covers: KB canonical layer, MDM tier results, rule engine, agent recommendations
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// ============================================================
+// USERS / AUTH (minimal)
+// ============================================================
+model User {
+  id        String   @id
+  email     String   @unique
+  name      String
+  role      String   // 'admin' | 'manager' | 'editor'
+  team      String?
+  createdAt DateTime @default(now())
+}
+
+// ============================================================
+// SILVER layer — per-source cleaned records (for matching demo)
+// ============================================================
+model SfAccount {
+  sfdcId             String   @id
+  name               String
+  businessNo         String?
+  website            String?
+  industry           String?
+  annualRevenueKrw   BigInt?
+  marketingBudgetKrw BigInt?
+  address            String?
+  ingestedAt         DateTime @default(now())
+}
+
+model SheetProspect {
+  rowKey     String   @id
+  name       String
+  brand      String?
+  domain     String?
+  businessNo String?
+  budgetKrw  BigInt?
+  industry   String?
+  notes      String?
+  ingestedAt DateTime @default(now())
+}
+
+// ============================================================
+// GOLD / Canonical
+// ============================================================
+model Account {
+  cmid                  String   @id // 'mb_acc_' + nanoid
+  canonicalName         String
+  canonicalNameNorm     String
+  brandNamesJson        String   @default("[]")
+  legalName             String?
+  businessNo            String?  @unique
+  dartCorpCode          String?
+  website               String?
+  domainRoot            String?
+  industryCode          String?
+  industryLabel         String?
+  companySize           String?  // SMB / MidMarket / Enterprise
+  annualRevenueKrw      BigInt?
+  marketingBudgetKrw    BigInt?
+  customerTier          String?  // A / B / C / D
+  relationshipScore     Float?
+  leadStage             String?  // Identified / Invited / Confirmed / Met / Won / Lost
+  ownerUserId           String?
+  lastTouchedAt         DateTime?
+  confidence            Float?
+  sharedWithTenantsJson String   @default("[\"group_shared\"]")
+  lineageJson           String   @default("{}")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  aliases     AccountAlias[]
+  externalIds AccountExternalId[]
+  contacts    Contact[]
+  activities  Activity[]
+  documents   Document[]
+  proposals   Proposal[]
+  biddings    Bidding[]
+  scores      RelationshipScore[]
+  events      EventInvitation[]
+}
+
+model AccountAlias {
+  id              String  @id
+  cmid            String
+  alias           String
+  aliasNormalized String
+  aliasType       String  // legal/brand/english/typo/historical
+  source          String?
+  isActive        Boolean @default(true)
+
+  account Account @relation(fields: [cmid], references: [cmid], onDelete: Cascade)
+
+  @@index([aliasNormalized])
+}
+
+model AccountExternalId {
+  id             String   @id
+  cmid           String
+  sourceSystem   String   // Salesforce / Sheet:prospects / DART / ...
+  sourceRecordId String
+  sourceName     String?
+  linkedAt       DateTime @default(now())
+  linkedBy       String?
+  confidence     Float?
+
+  account Account @relation(fields: [cmid], references: [cmid], onDelete: Cascade)
+
+  @@unique([sourceSystem, sourceRecordId])
+}
+
+model Contact {
+  pmid       String   @id
+  cmid       String
+  fullName   String
+  email      String?
+  phone      String?
+  title      String?
+  seniority  String?  // C-Level/VP/Director/Manager/Staff
+  isPrimary  Boolean  @default(false)
+
+  account Account @relation(fields: [cmid], references: [cmid], onDelete: Cascade)
+}
+
+model Activity {
+  id            String   @id
+  cmid          String
+  pmid          String?
+  type          String   // Meeting / Email / Call / EventTouch / Note
+  direction     String?  // In / Out
+  subject       String?
+  body          String?
+  bodySummary   String?
+  topicsJson    String   @default("[]")
+  occurredAt    DateTime
+  piiRedacted   Boolean  @default(false)
+  sourceSystem  String?
+
+  account Account @relation(fields: [cmid], references: [cmid], onDelete: Cascade)
+
+  @@index([cmid, occurredAt])
+}
+
+model Document {
+  id           String   @id
+  cmid         String?
+  sourceType   String   // meeting_note / proposal / collateral
+  title        String
+  body         String
+  bodyRedacted String?
+  language     String   @default("ko")
+  sourceUri    String?
+  fileHash     String?
+  createdAt    DateTime @default(now())
+
+  account Account? @relation(fields: [cmid], references: [cmid], onDelete: SetNull)
+  chunks  DocChunk[]
+}
+
+model DocChunk {
+  id           String  @id
+  documentId   String
+  ordinal      Int
+  text         String
+  topicsJson   String  @default("[]")
+  metadataJson String  @default("{}")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
+model Proposal {
+  id             String    @id
+  cmid           String
+  title          String
+  submittedAt    DateTime?
+  amountKrw      BigInt?
+  outcome        String?   // Won / Lost / Withdrawn / Pending
+  failReason     String?   // Price / Fit / Timing / Relationship / Other
+
+  account Account @relation(fields: [cmid], references: [cmid], onDelete: Cascade)
+}
+
+model Bidding {
+  id                 String    @id
+  cmid               String?
+  title              String
+  issuedAt           DateTime?
+  deadline           DateTime?
+  estimatedAmountKrw BigInt?
+  status             String    @default("Detected") // Detected/Reviewing/Joined/Skipped/Won/Lost
+  decisionScore      Float?
+  decisionReasonJson String?
+
+  account Account? @relation(fields: [cmid], references: [cmid], onDelete: SetNull)
+}
+
+model RelationshipScore {
+  id          String   @id
+  cmid        String
+  snapshotAt  DateTime
+  score       Float
+  factorsJson String
+
+  account Account @relation(fields: [cmid], references: [cmid], onDelete: Cascade)
+
+  @@index([cmid, snapshotAt])
+}
+
+model Product {
+  id            String  @id
+  name          String
+  category      String  // Media / Solution / Service
+  description   String?
+  useCasesJson  String  @default("[]")
+  fitTopicsJson String  @default("[]")
+}
+
+model Event {
+  id          String   @id
+  name        String
+  startsAt    DateTime
+  endsAt      DateTime?
+  location    String?
+  description String?
+
+  sessions    Session[]
+  invitations EventInvitation[]
+}
+
+model Session {
+  id              String   @id
+  eventId         String
+  title           String
+  track           String?
+  description     String?
+  targetTopicsJson String  @default("[]")
+  speakersJson    String   @default("[]")
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+model EventInvitation {
+  id         String    @id
+  eventId    String
+  cmid       String
+  pmid       String?
+  status     String    @default("NotInvited") // NotInvited/Invited/Confirmed/Declined/Attended/NoShow
+  invitedAt  DateTime?
+  attendedAt DateTime?
+
+  event   Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [cmid], references: [cmid], onDelete: Cascade)
+
+  @@unique([eventId, cmid])
+}
+
+// ============================================================
+// MDM — Master Data Management (Tier 3 review queue)
+// ============================================================
+model MdmCandidate {
+  id           String   @id
+  leftCmid     String?  // null if both sides are new source records
+  rightRefJson String   // {system, recordId, name, ...}
+  score        Float
+  featuresJson String
+  status       String   @default("pending") // pending / merged / rejected / expired
+  decidedBy    String?
+  decidedAt    DateTime?
+  createdAt    DateTime @default(now())
+}
+
+model MdmMergeLog {
+  id                 String   @id
+  survivorCmid       String
+  victimCmid         String?
+  mergedBy           String
+  mergedAt           DateTime @default(now())
+  victimSnapshotJson String
+  reversibleUntil    DateTime
+}
+
+// ============================================================
+// RULE ENGINE
+// ============================================================
+model RuleDefinition {
+  id          String   @id
+  name        String
+  description String?
+  yaml        String
+  version     Int      @default(1)
+  status      String   @default("draft") // draft / active / archived
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  approvedBy  String?
+  approvedAt  DateTime?
+
+  executions RuleExecution[]
+}
+
+model RuleExecution {
+  id                 String   @id
+  ruleId             String
+  ruleVersion        Int
+  trigger            String   // event / cron / api / simulate
+  triggerPayloadJson String?
+  inputsSnapshotJson String?
+  decisionJson       String?
+  outputsJson        String?
+  status             String   // ok / skipped / failed
+  error              String?
+  startedAt          DateTime
+  endedAt            DateTime?
+  latencyMs          Int?
+
+  rule RuleDefinition @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId, startedAt])
+}
+
+// ============================================================
+// AGENT — requests, recommendations, messages, actions
+// ============================================================
+model AgentRequest {
+  id              String   @id
+  userId          String
+  purpose         String   // invite / session_match / followup / next_action / post_event
+  payloadJson     String
+  status          String   @default("Pending") // Pending / Running / Completed / Failed
+  startedAt       DateTime?
+  completedAt     DateTime?
+  llmCostUsd      Float    @default(0)
+
+  recommendations Recommendation[]
+}
+
+model Recommendation {
+  id                  String   @id
+  requestId           String
+  cmid                String
+  rank                Int
+  score               Float
+  reasonsJson         String   // [{type, evidence, weight}]
+  matchedProductsJson String   @default("[]")
+  matchedSessionsJson String   @default("[]")
+  strategy            String?
+  llmTraceId          String?
+  createdAt           DateTime @default(now())
+
+  request AgentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+}
+
+model Message {
+  id           String   @id
+  cmid         String
+  pmid         String?
+  purpose      String   // Invitation / Proposal / FollowUp / Reminder / PostEvent
+  channel      String   @default("Email")
+  subject      String
+  body         String
+  variablesJson String  @default("{}")
+  status       String   @default("Draft") // Draft / PendingApproval / Approved / Rejected / Sent
+  approvedBy   String?
+  approvedAt   DateTime?
+  sentAt       DateTime?
+  evidenceJson String   @default("[]")
+  createdAt    DateTime @default(now())
+}
+
+model ActionItem {
+  id            String   @id
+  cmid          String
+  ownerUserId   String?
+  actionType    String   // SendInvite / SendReminder / ScheduleMeeting / PostEventFollowUp / AssignOwner
+  priority      Int      @default(3)
+  reason        String?
+  dueBy         DateTime?
+  status        String   @default("Open") // Open / InProgress / Done / Dismissed
+  autoGenerated Boolean  @default(true)
+  linkedMessageId String?
+  createdAt     DateTime @default(now())
+}
+
+// ============================================================
+// Governance / DQ
+// ============================================================
+model AuditLog {
+  id           String   @id
+  actor        String?
+  action       String
+  resourceType String?
+  resourceId   String?
+  beforeJson   String?
+  afterJson    String?
+  at           DateTime @default(now())
+}
+
+model DqRun {
+  id           String   @id
+  suite        String
+  runAt        DateTime @default(now())
+  metricsJson  String
+  breachesJson String?
+  status       String
+}
+
+model RuleWeight {
+  key       String   @id
+  weight    Float
+  updatedAt DateTime @updatedAt
+}
