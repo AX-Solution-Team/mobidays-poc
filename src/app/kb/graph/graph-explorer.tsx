@@ -31,26 +31,6 @@ interface GraphEdge {
   label: string;
 }
 
-// ── Static data ────────────────────────────────────────────────────────────
-const NODES: GraphNode[] = [
-  { id: "sf_001", label: "삼성 전자", source: "Salesforce", tier: "Silver", x: 220, y: 160, cluster: 1 },
-  { id: "sh_001", label: "삼성전자(주)", source: "G-Sheet", tier: "Silver", x: 380, y: 100, cluster: 1 },
-  { id: "dc_001", label: "Samsung Electronics", source: "Drive Doc", tier: "Bronze", x: 500, y: 180, cluster: 1 },
-  { id: "mb_001", label: "삼성전자", source: "Canon (CMID)", tier: "Gold", x: 360, y: 270, canonical: true, cmid: "CMID-0001", cluster: 1 },
-  { id: "sf_002", label: "네오플라이트 스튜디오", source: "Salesforce", tier: "Silver", x: 130, y: 380, cluster: 2 },
-  { id: "dc_002", label: "NeoFlight Studios", source: "Drive Doc", tier: "Bronze", x: 270, y: 420, cluster: 2 },
-  { id: "mb_002", label: "네오플라이트", source: "Canon (CMID)", tier: "Gold", x: 200, y: 470, canonical: true, cmid: "CMID-0042", cluster: 2 },
-  { id: "sf_003", label: "삼성공구사", source: "Salesforce", tier: "Silver", x: 620, y: 290, separated: true, separationReason: "BRN 상이 (110-81-XXXXX vs 126-81-XXXXX)" },
-];
-
-const EDGES: GraphEdge[] = [
-  { from: "sf_001", to: "mb_001", type: "domain", label: "samsung.com 도메인 일치" },
-  { from: "sh_001", to: "mb_001", type: "normalized_name", label: "정규화 이름 일치" },
-  { from: "dc_001", to: "mb_001", type: "embedding", label: "임베딩 유사도 0.97" },
-  { from: "sf_001", to: "sh_001", type: "contact_overlap", label: "거래처 3개 겹침" },
-  { from: "sf_002", to: "mb_002", type: "normalized_name", label: "정규화 이름 일치" },
-  { from: "dc_002", to: "mb_002", type: "domain", label: "neoflight.demo 도메인" },
-];
 
 // ── Style helpers ──────────────────────────────────────────────────────────
 const TIER_STYLES: Record<Tier, string> = {
@@ -115,21 +95,26 @@ const PIPELINE_LAYERS = [
 // ── Main component ─────────────────────────────────────────────────────────
 export function GraphExplorer() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [nodes, setNodes] = useState<GraphNode[]>(NODES);
-  const [edges, setEdges] = useState<GraphEdge[]>(EDGES);
+  const [nodes, setNodes] = useState<GraphNode[]>([]);
+  const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [loading, setLoading] = useState(true);
+  const [separatedCount, setSeparatedCount] = useState(0);
+  const [fetchFailed, setFetchFailed] = useState(false);
 
   useEffect(() => {
     fetch("/api/graph")
       .then((r) => r.json())
-      .then((data: { nodes: GraphNode[]; edges: GraphEdge[] }) => {
+      .then((data: { nodes: GraphNode[]; edges: GraphEdge[]; stats?: { separatedCount?: number } }) => {
         if (data.nodes?.length) {
           setNodes(data.nodes);
           setEdges(data.edges ?? []);
+          setSeparatedCount(data.stats?.separatedCount ?? 0);
+        } else {
+          setFetchFailed(true);
         }
       })
       .catch(() => {
-        // keep static fallback already in state
+        setFetchFailed(true);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -141,10 +126,12 @@ export function GraphExplorer() {
 
   const nodeMap = Object.fromEntries(nodes.map((n) => [n.id, n]));
 
-  // Compute cluster bboxes from live nodes
-  const clusterIds = [...new Set(nodes.map((n) => n.cluster).filter((c): c is number => c != null))];
+  // Compute cluster bboxes from live nodes (exclude separated nodes)
+  const nonSeparatedNodes = nodes.filter((n) => !n.separated);
+  const clusterIds = [...new Set(nonSeparatedNodes.map((n) => n.cluster).filter((c): c is number => c != null))];
   function clusterBBoxLive(clusterId: number) {
-    const ns = nodes.filter((n) => n.cluster === clusterId);
+    const ns = nonSeparatedNodes.filter((n) => n.cluster === clusterId);
+    if (ns.length === 0) return { left: 0, top: 0, right: 0, bottom: 0 };
     const xs = ns.map((n) => n.x);
     const ys = ns.map((n) => n.y);
     const pad = 48;
@@ -201,12 +188,12 @@ export function GraphExplorer() {
               {/* Relative container: node divs + SVG overlay */}
               <div className="relative mx-5 mb-5 mt-2 overflow-hidden rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-muted)]/30" style={{ height: 560 }}>
                 {loading ? (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <svg className="w-full h-full">
-                      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fontSize={14} fill="currentColor" className="text-[color:var(--color-muted-foreground)]">
-                        그래프 로드 중...
-                      </text>
-                    </svg>
+                  <div className="absolute inset-0 flex items-center justify-center text-sm text-[color:var(--color-muted-foreground)]">
+                    그래프 로드 중...
+                  </div>
+                ) : !loading && fetchFailed && nodes.length === 0 ? (
+                  <div className="absolute inset-0 flex items-center justify-center text-sm text-[color:var(--color-muted-foreground)]">
+                    데이터 없음
                   </div>
                 ) : (
                   <>
@@ -334,13 +321,16 @@ export function GraphExplorer() {
                   );
                 })}
 
-                {/* 삼성공구사 label */}
-                <div
-                  className="absolute text-[9px] text-red-400 font-medium whitespace-nowrap"
-                  style={{ left: 580, top: 320, zIndex: 3 }}
-                >
-                  분리됨 (BRN 상이)
-                </div>
+                {/* Separated node labels */}
+                {nodes.filter((n) => n.separated).map((n) => (
+                  <div
+                    key={`sep-label-${n.id}`}
+                    className="absolute text-[9px] text-red-400 font-medium whitespace-nowrap"
+                    style={{ left: n.x - 20, top: n.y + 22, zIndex: 3 }}
+                  >
+                    분리됨 (BRN 상이)
+                  </div>
+                ))}
 
                 {/* Click hint */}
                 {!selectedNodeId && (
@@ -349,6 +339,20 @@ export function GraphExplorer() {
                   </div>
                 )}
                   </>
+                )}
+              </div>
+              {/* Stats row */}
+              <div className="flex items-center gap-3 px-5 pb-3 pt-1 flex-wrap">
+                <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
+                  정본 <strong className="text-[color:var(--color-foreground)]">{nodes.filter((n) => n.canonical).length}</strong>건
+                </span>
+                <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
+                  소스 노드 <strong className="text-[color:var(--color-foreground)]">{nodes.filter((n) => !n.canonical && !n.separated).length}</strong>건
+                </span>
+                {separatedCount > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 border border-red-300 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                    ✕ 분리됨 {separatedCount}건
+                  </span>
                 )}
               </div>
             </div>

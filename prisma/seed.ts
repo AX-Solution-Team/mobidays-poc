@@ -375,6 +375,43 @@ async function main(prisma: PrismaClient) {
     });
   }
 
+  // Rejected MDM candidates — separated entities (BRN 상이)
+  console.log("🌱  Seeding rejected MDM candidates (separated entities)…");
+  await prisma.mdmCandidate.createMany({
+    data: [
+      {
+        id: id("mdc"),
+        leftCmid: "mb_acc_samsung",
+        rightRefJson: JSON.stringify({ system: "Salesforce", recordId: "001A0000SAMSUNG_GONGU", name: "삼성공구사", businessNo: "126-81-00001" }),
+        score: 0.61,
+        featuresJson: JSON.stringify({ nameSimilarity: 0.72, brnMatch: false, domainMatch: false, rejectionReason: "BRN 상이 (1248100998 vs 126-81-00001)" }),
+        status: "rejected",
+        decidedBy: "user_admin",
+        decidedAt: new Date(),
+      },
+      {
+        id: id("mdc"),
+        leftCmid: "mb_acc_coupang",
+        rightRefJson: JSON.stringify({ system: "Salesforce", recordId: "001A0000COUPANG_LOG", name: "쿠팡로지스틱스", businessNo: "215-88-00004" }),
+        score: 0.55,
+        featuresJson: JSON.stringify({ nameSimilarity: 0.68, brnMatch: false, domainMatch: false, rejectionReason: "별개 법인 (물류 자회사)" }),
+        status: "rejected",
+        decidedBy: "user_admin",
+        decidedAt: new Date(),
+      },
+      {
+        id: id("mdc"),
+        leftCmid: "mb_acc_kakao",
+        rightRefJson: JSON.stringify({ system: "Salesforce", recordId: "001A0000KAKAO_BANK_2", name: "카카오뱅크", businessNo: "403-81-00003" }),
+        score: 0.58,
+        featuresJson: JSON.stringify({ nameSimilarity: 0.70, brnMatch: false, domainMatch: false, rejectionReason: "별개 법인 (금융 자회사)" }),
+        status: "rejected",
+        decidedBy: "user_admin",
+        decidedAt: new Date(),
+      },
+    ],
+  });
+
   // DQ runs (snapshot for dashboard)
   console.log("🌱  Seeding DQ runs…");
   await prisma.dqRun.create({
@@ -1516,6 +1553,11 @@ const SF_RECORDS: SfRec[] = [
   { id: "001A0000NETMRB", name: "넷마블", website: "https://www.netmarble.com", industry: "Game" },
   { id: "001A0000NCSOFT", name: "엔씨소프트", website: "https://www.ncsoft.com", industry: "Game" },
   { id: "001A0000PIXEL", name: "픽셀네스트", website: "https://www.pixelnest.demo", industry: "Game" },
+  // Separated entity orphans — BRN differs from known canonical accounts
+  { id: "001A0000SAMSUNG_GONGU", name: "삼성공구사", businessNo: "126-81-00001", website: undefined, industry: "Manufacturing", revenue: 50_0000_0000, budget: 5_0000_0000 },
+  { id: "001A0000LOTTE_JEGWA", name: "롯데제과", businessNo: "104-81-00002", website: "https://www.lotteconf.co.kr", industry: "Food", revenue: 2_0000_0000_0000, budget: 30_0000_0000 },
+  { id: "001A0000KAKAO_BANK_2", name: "카카오뱅크", businessNo: "403-81-00003", website: "https://www.kakaobank.com", industry: "FinTech", revenue: 3_0000_0000_0000, budget: 80_0000_0000 },
+  { id: "001A0000COUPANG_LOG", name: "쿠팡로지스틱스", businessNo: "215-88-00004", website: undefined, industry: "Logistics", revenue: 1_0000_0000_0000, budget: 15_0000_0000 },
 ];
 
 const SHEET_RECORDS: { id: string; name: string; brand?: string; domain?: string; businessNo?: string; budget?: number; industry?: string; notes?: string }[] = [
