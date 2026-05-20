@@ -9,13 +9,100 @@ import { fmtDate, fmtPct, safeParseJson } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
+const AI_READY_SOURCES = [
+  {
+    name: "Salesforce (CRM)",
+    desc: "고객 정보 약 12,400건",
+    score: 92,
+    metrics: { 신뢰성: "●", 완결성: "●", 중복성: "●", 신선도: "●" },
+    issues: [],
+  },
+  {
+    name: "Google Spreadsheet",
+    desc: "실행/수주 실패 이력 등",
+    score: 65,
+    metrics: { 신뢰성: "●", 완결성: "◐", 중복성: "✗", 신선도: "◐" },
+    issues: ["광고주명 중복 표기 38건", "도메인 누락 12%"],
+  },
+  {
+    name: "미팅록 & 이메일",
+    desc: "비정형 데이터 80%",
+    score: 78,
+    metrics: { 신뢰성: "●", 완결성: "◐", 중복성: "●", 신선도: "◐" },
+    issues: ["구조화 추출 필요", "PII 마스킹 미처리 건 존재"],
+  },
+  {
+    name: "행사 이력 (History)",
+    desc: "컨퍼런스 참석 로그 등",
+    score: 85,
+    metrics: { 신뢰성: "●", 완결성: "◐", 중복성: "●", 신선도: "●" },
+    issues: ["2024년 이전 데이터 누락"],
+  },
+  {
+    name: "상품/세션 자료",
+    desc: "카탈로그, 아젠다 PDF",
+    score: 60,
+    metrics: { 신뢰성: "●", 완결성: "✗", 중복성: "◐", 신선도: "◐" },
+    issues: ["비정형 PDF 전용", "버전 관리 부재", "최신화 지연"],
+  },
+];
+
+function DotIndicator({ value }: { value: string }) {
+  if (value === "●")
+    return <span className="inline-block size-2.5 rounded-full bg-[color:var(--color-success)]" />;
+  if (value === "◐")
+    return <span className="inline-block size-2.5 rounded-full bg-[color:var(--color-warning)]" />;
+  return <span className="inline-block size-2.5 rounded-full bg-[color:var(--color-danger)]" />;
+}
+
+function ScoreGauge({ score }: { score: number }) {
+  const color =
+    score >= 90 ? "var(--color-success)" : score >= 70 ? "#3b82f6" : "var(--color-warning)";
+  const pct = Math.round((score / 100) * 360);
+  return (
+    <div className="relative flex items-center justify-center" style={{ width: 64, height: 64 }}>
+      <div
+        style={{
+          width: 64,
+          height: 64,
+          borderRadius: "50%",
+          background: `conic-gradient(${color} ${pct}deg, var(--color-border) ${pct}deg)`,
+        }}
+      />
+      <div
+        className="absolute flex items-center justify-center rounded-full bg-[color:var(--color-card)]"
+        style={{ width: 46, height: 46 }}
+      >
+        <span className="text-sm font-bold tabular-nums" style={{ color }}>
+          {score}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export default async function DqPage() {
-  const runs = await prisma.dqRun.findMany({
-    orderBy: { runAt: "desc" },
-  });
+  const [runs, latestRun, sfCount, sheetCount, accountCount, chunkCount, activityCount] =
+    await Promise.all([
+      prisma.dqRun.findMany({ orderBy: { runAt: "desc" } }),
+      prisma.dqRun.findFirst({ orderBy: { runAt: "desc" } }),
+      prisma.sfAccount.count(),
+      prisma.sheetProspect.count(),
+      prisma.account.count(),
+      prisma.docChunk.count(),
+      prisma.activity.count(),
+    ]);
 
   const totalSuites = runs.length;
   const passing = runs.filter((r) => r.status === "passed").length;
+
+  const SOURCE_COUNTS: Record<string, number> = {
+    "Salesforce (CRM)": sfCount,
+    "Google Spreadsheet": sheetCount,
+    "미팅록 & 이메일": activityCount,
+    "행사 이력 (History)": accountCount,
+    "상품/세션 자료": chunkCount,
+  };
 
   return (
     <AppShell>
@@ -29,6 +116,104 @@ export default async function DqPage() {
           { label: "데이터 품질" },
         ]}
       />
+
+      {/* AI-Ready 데이터 소스 점수 */}
+      <section className="mb-8">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold tracking-tight">AI-Ready 데이터 소스 점수</h2>
+          <Badge tone="ink">소스별 AI 활용 준비도</Badge>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-5">
+          {AI_READY_SOURCES.map((src) => (
+            <div
+              key={src.name}
+              className="rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-card)] p-4 flex flex-col gap-3"
+            >
+              <div className="flex items-center gap-3">
+                <ScoreGauge score={src.score} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold leading-tight truncate">{src.name}</div>
+                  <div className="text-[11px] text-[color:var(--color-muted-foreground)] mt-0.5 leading-tight">
+                    {src.desc}
+                    {SOURCE_COUNTS[src.name] !== undefined && (
+                      <span className="ml-1 font-semibold text-[color:var(--color-foreground)]">
+                        ({SOURCE_COUNTS[src.name].toLocaleString()}건)
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+                {Object.entries(src.metrics).map(([key, val]) => (
+                  <div key={key} className="flex items-center gap-1.5">
+                    <DotIndicator value={val} />
+                    <span className="text-[color:var(--color-muted-foreground)]">{key}</span>
+                  </div>
+                ))}
+              </div>
+              {src.issues.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {src.issues.map((issue) => (
+                    <span
+                      key={issue}
+                      className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-[color:var(--color-danger-bg)] text-[color:var(--color-danger)] border border-[color:var(--color-danger)]/20"
+                    >
+                      {issue}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Pipeline bar */}
+        <div className="rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-5 py-3 overflow-x-auto">
+          <div className="flex items-center gap-2 min-w-max text-xs font-medium">
+            {[
+              "Raw Data Diagnostics",
+              "Quality Refinement (ETL)",
+              "Vector Indexing",
+              "AI Knowledge Base",
+            ].map((step, i, arr) => (
+              <div key={step} className="flex items-center gap-2">
+                <div className="rounded-md px-3 py-1.5 bg-[color:var(--color-brand-ink)] text-[color:var(--color-brand-lime)] text-[11px] font-semibold whitespace-nowrap">
+                  {step}
+                </div>
+                {i < arr.length - 1 && (
+                  <span className="text-[color:var(--color-muted-foreground)] text-base">→</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {latestRun && (
+        <section className="mb-6">
+          <div className="rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-5 py-4">
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-sm font-semibold flex items-center gap-2">
+                {latestRun.status === "passed" ? (
+                  <ShieldCheck className="size-4 text-[color:var(--color-success)]" />
+                ) : (
+                  <AlertTriangle className="size-4 text-[color:var(--color-warning)]" />
+                )}
+                최근 DQ 실행
+                <Badge tone={latestRun.status === "passed" ? "success" : "warning"}>
+                  {latestRun.status}
+                </Badge>
+              </div>
+              <span className="text-xs text-[color:var(--color-muted-foreground)]">
+                {fmtDate(latestRun.runAt, true)}
+              </span>
+            </div>
+            <div className="text-xs text-[color:var(--color-muted-foreground)]">
+              Suite: <span className="font-mono">{latestRun.suite}</span>
+            </div>
+          </div>
+        </section>
+      )}
 
       <div className="grid grid-cols-3 gap-3 mb-6">
         <Stat label="실행된 Suite" value={totalSuites} />

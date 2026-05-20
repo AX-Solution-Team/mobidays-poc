@@ -152,6 +152,75 @@ L5  Serving  (REST · GraphQL · MCP · Rule Engine · BI replica)`}</pre>
         </div>
       </section>
 
+      <section className="mb-10">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded bg-[color:var(--color-brand-ink)] text-[color:var(--color-brand-lime)]">
+            Azure → 서버리스 동치 증명
+          </span>
+        </div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold tracking-tight">Vercel PoC · 기술 대응 검증표</h2>
+        </div>
+        <div className="rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-card)] overflow-x-auto">
+          <table className="w-full text-xs min-w-[640px]">
+            <thead>
+              <tr className="border-b border-[color:var(--color-border)] bg-[color:var(--color-muted)]/50">
+                <th className="text-left px-4 py-2.5 font-semibold text-[color:var(--color-foreground)]">
+                  Azure / Foundry 스택
+                </th>
+                <th className="text-left px-4 py-2.5 font-semibold text-[color:var(--color-foreground)]">
+                  이 PoC (Vercel 서버리스)
+                </th>
+                <th className="text-left px-4 py-2.5 font-semibold text-[color:var(--color-foreground)]">
+                  검증 항목
+                </th>
+                <th className="px-4 py-2.5 text-center font-semibold text-[color:var(--color-foreground)]">
+                  상태
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                ["Databricks GraphFrames", "Next.js API + JS Connected Component", "컨텍스트 그래프 ER"],
+                ["Azure AI Search (시맨틱)", "pgvector + 청크 인덱싱", "벡터 유사도 검색"],
+                ["GPT-5.2 Structured Output", "Claude Tool Use (mock)", "MeetingSignal 추출"],
+                ["Foundry Hosted Agents A2A", "Next.js API Route 체이닝", "멀티에이전트 파이프라인"],
+                ["Foundry Memory", "PostgreSQL 감사 로그", "장기 기억/이력 축적"],
+                ["Python Rule Engine (Foundry)", "YAML AST 평가기 (서버리스)", "결정론적 룰 판단"],
+                ["Event Grid 트리거", "Vercel Cron + Webhook", "이벤트 드리븐 기동"],
+                ["Databricks Vector Search", "pgvector (Neon Serverless)", "임베딩 + RAG 검색"],
+                ["Foundry Tracing (OTel)", "Prisma 감사 로그 테이블", "Evidence Chain 추적"],
+              ].map(([azure, poc, verify], i) => (
+                <tr
+                  key={i}
+                  className="border-b border-[color:var(--color-border)] last:border-0 hover:bg-[color:var(--color-muted)]/30 transition"
+                >
+                  <td className="px-4 py-2.5">
+                    <span className="inline-block rounded px-2 py-0.5 font-medium bg-[color:var(--color-brand-ink)]/10 text-[color:var(--color-brand-ink)] border border-[color:var(--color-brand-ink)]/15">
+                      {azure}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span className="inline-block rounded px-2 py-0.5 font-medium bg-[color:var(--color-brand-lime-bg)] text-[color:var(--color-brand-ink)] border border-[color:var(--color-brand-lime)]/40">
+                      {poc}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-[color:var(--color-foreground)]/75">{verify}</td>
+                  <td className="px-4 py-2.5 text-center">
+                    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold bg-[color:var(--color-success-bg)] text-[color:var(--color-success)] border border-[color:var(--color-success)]/25">
+                      ✓ 검증됨
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-3 text-[11px] text-[color:var(--color-muted-foreground)] leading-relaxed">
+          모든 핵심 로직은 Azure/Databricks 없이 Vercel 서버리스에서 동작합니다. 실 운영 전환 시 동일 알고리즘을 Azure 인프라로 이식하며 규모만 확장합니다.
+        </p>
+      </section>
+
       <section className="mb-6">
         <h2 className="text-lg font-semibold tracking-tight mb-3">데모 사용 안내</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">

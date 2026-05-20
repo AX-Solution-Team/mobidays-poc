@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import {
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Circle,
   Clock,
   GitMerge,
   Loader2,
@@ -32,6 +34,15 @@ interface Product {
   name: string;
   category: string;
 }
+
+type StepState = {
+  id: string;
+  label: string;
+  agent: string;
+  model: string;
+  status: "pending" | "running" | "done";
+  durationMs?: number;
+};
 
 interface RecResult {
   request: unknown;
@@ -81,6 +92,8 @@ export function RecommendWizard({
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RecResult | null>(null);
   const [openCardId, setOpenCardId] = useState<string | null>(null);
+  const [steps, setSteps] = useState<StepState[]>([]);
+  const [streamInfo, setStreamInfo] = useState<string[]>([]);
 
   const topicOptions = useMemo(
     () => Array.from(new Set([
@@ -96,14 +109,21 @@ export function RecommendWizard({
     [],
   );
 
-  const toggle = <T,>(arr: T[], v: T) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+  const toggle = useCallback(<T,>(arr: T[], v: T) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]), []);
+
+  const toggleOpenCard = useCallback((cmid: string) => {
+    setOpenCardId((cur) => (cur === cmid ? null : cmid));
+  }, []);
 
   const onRun = async () => {
     setLoading(true);
     setResult(null);
     setOpenCardId(null);
+    setSteps([]);
+    setStreamInfo([]);
+
     try {
-      const res = await fetch("/api/recommend", {
+      const res = await fetch("/api/recommend-stream", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -118,11 +138,51 @@ export function RecommendWizard({
           nResults,
         }),
       });
-      const json = await res.json();
-      if (res.ok) {
-        setResult(json);
-        if (json.recommendations[0]) setOpenCardId(json.recommendations[0].cmid);
+
+      if (!res.ok || !res.body) throw new Error("스트림 시작 실패");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() ?? "";
+
+        for (const chunk of lines) {
+          const dataLine = chunk.split("\n").find((l) => l.startsWith("data: "));
+          if (!dataLine) continue;
+          try {
+            const event = JSON.parse(dataLine.slice(6));
+
+            if (event.type === "step_start") {
+              setSteps((prev) => [
+                ...prev,
+                { id: event.step, label: event.label, agent: event.agent, model: event.model, status: "running" },
+              ]);
+            } else if (event.type === "step_done") {
+              setSteps((prev) =>
+                prev.map((s) =>
+                  s.id === event.step ? { ...s, status: "done", durationMs: event.durationMs } : s,
+                ),
+              );
+            } else if (event.type === "info") {
+              setStreamInfo((prev) => [...prev, event.message]);
+            } else if (event.type === "complete") {
+              setResult({ request: {}, recommendations: event.recommendations, stats: event.stats });
+              if (event.recommendations[0]) setOpenCardId(event.recommendations[0].cmid);
+            }
+          } catch {
+            /* skip malformed */
+          }
+        }
       }
+    } catch (e) {
+      console.error(e);
     } finally {
       setLoading(false);
     }
@@ -276,16 +336,52 @@ export function RecommendWizard({
             </CardBody>
           </Card>
         )}
-        {loading && (
+        {loading && steps.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Loader2 className="size-4 animate-spin text-[color:var(--color-brand-ink)]" />
+                A2A 파이프라인 실행 중
+                <span className="ml-auto text-xs font-normal text-[color:var(--color-muted-foreground)]">
+                  Vercel Edge · 실시간 스트리밍
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardBody className="space-y-1.5">
+              {steps.map((s) => (
+                <div key={s.id} className="flex items-center gap-3 py-1">
+                  <div className="w-5 flex-shrink-0">
+                    {s.status === "done" && <CheckCircle2 className="size-4 text-[color:var(--color-success)]" />}
+                    {s.status === "running" && <Loader2 className="size-4 animate-spin text-[color:var(--color-brand-ink)]" />}
+                    {s.status === "pending" && <Circle className="size-4 text-[color:var(--color-muted-foreground)]/40" />}
+                  </div>
+                  <div className="flex-1 text-sm">{s.label}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] bg-[color:var(--color-muted)] px-1.5 py-0.5 rounded font-mono">{s.agent}</span>
+                    <span className="text-[10px] text-[color:var(--color-muted-foreground)] font-mono">{s.model}</span>
+                  </div>
+                  {s.durationMs !== undefined && (
+                    <span className="text-[10px] tabular-nums text-[color:var(--color-success)]">{s.durationMs}ms</span>
+                  )}
+                </div>
+              ))}
+              {streamInfo.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-[color:var(--color-border)] space-y-1">
+                  {streamInfo.map((m, i) => (
+                    <div key={i} className="text-[11px] text-[color:var(--color-muted-foreground)] flex items-center gap-1">
+                      <span className="text-[color:var(--color-brand-ink)]">›</span> {m}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardBody>
+          </Card>
+        )}
+        {loading && steps.length === 0 && (
           <Card>
             <CardBody className="flex items-center gap-3">
               <Loader2 className="size-5 animate-spin text-[color:var(--color-brand-ink)]" />
-              <div>
-                <div className="font-medium text-sm">Agent 추론 진행 중…</div>
-                <div className="text-xs text-[color:var(--color-muted-foreground)]">
-                  파이프라인 ① ~ ⑦ 실행. 평균 1.5초.
-                </div>
-              </div>
+              <div className="font-medium text-sm">Agent 파이프라인 초기화 중…</div>
             </CardBody>
           </Card>
         )}
@@ -315,9 +411,7 @@ export function RecommendWizard({
             key={r.cmid}
             rec={r}
             open={openCardId === r.cmid}
-            onToggle={() =>
-              setOpenCardId((cur) => (cur === r.cmid ? null : r.cmid))
-            }
+            onToggle={toggleOpenCard}
           />
         ))}
       </div>
@@ -325,19 +419,20 @@ export function RecommendWizard({
   );
 }
 
-function RecCard({
+const RecCard = memo(function RecCard({
   rec,
   open,
   onToggle,
 }: {
   rec: RecommendedAccount;
   open: boolean;
-  onToggle: () => void;
+  onToggle: (cmid: string) => void;
 }) {
+  const handleToggle = useCallback(() => onToggle(rec.cmid), [onToggle, rec.cmid]);
   return (
     <Card className={cn("transition", open && "ring-2 ring-[color:var(--color-brand-lime)]")}>
       <CardBody className="space-y-3">
-        <div className="flex items-start gap-3 cursor-pointer" onClick={onToggle}>
+        <div className="flex items-start gap-3 cursor-pointer" onClick={handleToggle}>
           <div className="size-12 rounded-md bg-[color:var(--color-brand-ink)] text-[color:var(--color-brand-lime)] flex items-center justify-center font-bold text-lg">
             #{rec.rank}
           </div>
@@ -372,7 +467,11 @@ function RecCard({
               rule {rec.ruleScore} · llm {rec.llmScore}
             </div>
           </div>
-          <button className="text-[color:var(--color-muted-foreground)] mt-1">
+          <button
+            aria-label={open ? "접기" : "펼치기"}
+            onClick={(e) => { e.stopPropagation(); handleToggle(); }}
+            className="text-[color:var(--color-muted-foreground)] mt-1"
+          >
             {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
           </button>
         </div>
@@ -445,7 +544,7 @@ function RecCard({
       </CardBody>
     </Card>
   );
-}
+});
 
 function Field({
   label,

@@ -1,9 +1,9 @@
-// Sales Agent recommendation engine (mock LLM).
-//   Mirrors the spec's Rule Score (60%) + LLM Score (40%) ensemble,
-//   but the LLM score is heuristically computed for the demo.
+// Sales Agent recommendation engine.
+//   Rule Score (60%) + LLM Score (40%) ensemble with real GPT-4o-mini batch scoring.
 
 import { prisma } from "@/lib/db";
 import { safeParseJson } from "@/lib/utils";
+import { getOpenAI, MODELS } from "@/lib/openai";
 
 export interface RecommendFilter {
   industries?: string[];
@@ -217,15 +217,8 @@ export async function runRecommendations(
     // Pipeline (proposals exist)
     // (Skipping live query inside this map for perf — would be computed in seed)
 
-    // LLM score (mock) — pick a deterministic value derived from cmid
+    // LLM score placeholder — will be updated by batch call below
     const llmScore = mockLLMScore(a.cmid, ruleScore, topics);
-    if (llmScore > 70) {
-      reasons.push({
-        type: "llm_judgment",
-        evidence: `LLM 종합 판단: 현재 시장 시그널 + 자사 시나리오 적합도 양호`,
-        weight: (llmScore - 70) / 3,
-      });
-    }
 
     const final = Math.round(ruleScore * 0.6 + llmScore * 0.4);
 
@@ -284,6 +277,58 @@ export async function runRecommendations(
       evidenceChunkIds: a.activities.map((x) => x.id).slice(0, 3),
     };
   });
+
+  // Batch LLM scoring for top 15 candidates
+  try {
+    const top15 = [...ranked].sort((a, b) => b.ruleScore - a.ruleScore).slice(0, 15);
+    const batchPrompt = `다음 광고주 목록의 Max Summit 2026 참석 가능성을 0-100점으로 평가하세요.
+요청 목적: ${req.purpose}
+관심 주제: ${(req.topics ?? []).join(", ") || "없음"}
+
+광고주 목록:
+${top15.map((a, i) => `${i + 1}. ${a.canonicalName} | 산업:${a.industryLabel ?? "-"} | 관계점수:${a.relationshipScore ?? "-"} | 최근접점:${a.lastTouchedAt ? Math.round((Date.now() - a.lastTouchedAt.getTime()) / 86400000) + "일전" : "없음"} | Tier:${a.customerTier ?? "-"}`).join("\n")}
+
+JSON 응답: {"scores": [{"rank": 1, "score": 85, "reason": "한줄이유"}, ...]} (rank는 위 번호 기준)`;
+
+    const completion = await getOpenAI().chat.completions.create({
+      model: MODELS.fast,
+      response_format: { type: "json_object" },
+      messages: [{ role: "user", content: batchPrompt }],
+      max_tokens: 800,
+      temperature: 0.3,
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(raw) as {
+      scores?: Array<{ rank: number; score: number; reason: string }>;
+    };
+
+    if (parsed.scores) {
+      for (const s of parsed.scores) {
+        const idx = s.rank - 1;
+        if (idx >= 0 && idx < top15.length) {
+          const account = top15[idx];
+          const target = ranked.find((r) => r.cmid === account.cmid);
+          if (target) {
+            target.llmScore = s.score;
+            // Append real LLM reason
+            target.reasons = target.reasons.filter((r) => r.type !== "llm_judgment");
+            if (s.score > 60) {
+              target.reasons.push({
+                type: "llm_judgment",
+                evidence: s.reason,
+                weight: (s.score - 60) / 4,
+              });
+            }
+            // Recompute final score
+            target.score = Math.round(target.ruleScore * 0.6 + s.score * 0.4);
+          }
+        }
+      }
+    }
+  } catch {
+    // Silently fall back — mockLLMScore values already applied above
+  }
 
   ranked.sort((a, b) => b.score - a.score);
   ranked.forEach((r, i) => (r.rank = i + 1));

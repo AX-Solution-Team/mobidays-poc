@@ -217,6 +217,7 @@ export function ExtractDemo({ sampleText }: { sampleText: string }) {
         )}
 
         {result && <ExtractedFields result={result} />}
+        {result && <MeetingSignalPanel result={result} />}
         {result && <EntityLinks result={result} />}
         {result && <PiiPanel result={result} />}
         {result && <ChunksPanel result={result} />}
@@ -324,6 +325,172 @@ function ExtractedFields({ result }: { result: ExtractResult }) {
           <Kv label="언급 경쟁사" value={f.competitorsMentioned.join(", ") || "—"} />
           <Kv label="다음 미팅" value={f.nextMeeting ? f.nextMeeting.at : "—"} />
           <Kv label="리스크 플래그" value={f.riskFlags.join(", ") || "—"} />
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+function MeetingSignalPanel({ result }: { result: ExtractResult }) {
+  const f = result.fields;
+
+  const budgetAmount = f.budgetSignals[0]?.amountKrw ?? null;
+  const budgetConfidence: "HIGH" | "MEDIUM" | "LOW" =
+    budgetAmount === null ? "LOW" : budgetAmount >= 500_000_000 ? "HIGH" : budgetAmount >= 100_000_000 ? "MEDIUM" : "LOW";
+  const budgetTimeline = f.budgetSignals[0]?.horizon ?? "미확인";
+
+  const intentTypes = f.topics.map((t) => {
+    if (t.label.includes("RFP") || t.label.includes("제안")) return "RFP준비";
+    if (t.label.includes("솔루션") || t.label.includes("플랫폼") || t.label.includes("광고")) return "솔루션관심";
+    return "비딩";
+  });
+  const intentSignals = f.topics.map((t, i) => ({ type: intentTypes[i] ?? "솔루션관심", detail: t.label }));
+
+  const tones = f.topics.map((t) => t.sentiment);
+  const dominantTone = tones.includes("positive") ? "호의적" : tones.includes("negative") ? "경계" : "중립";
+  const toneTone = dominantTone === "호의적" ? "success" : dominantTone === "경계" ? "danger" : "neutral";
+
+  const overallSentiment: "positive" | "neutral" | "negative" = tones.includes("positive")
+    ? "positive"
+    : tones.includes("negative")
+      ? "negative"
+      : "neutral";
+  const sentimentTone = overallSentiment === "positive" ? "success" : overallSentiment === "negative" ? "danger" : "neutral";
+
+  const piiTypes = result.piiHits.map((h) => h.type);
+  const confColor = budgetConfidence === "HIGH" ? "var(--color-success)" : budgetConfidence === "MEDIUM" ? "#3b82f6" : "var(--color-warning)";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Sparkles className="size-4 text-[color:var(--color-brand-lime)]" />
+          MeetingSignal 구조화 스키마
+          <span className="text-[10px] font-normal bg-[color:var(--color-brand-ink)] text-[color:var(--color-brand-lime)] px-1.5 py-0.5 rounded ml-1">
+            GPT-5.2 Structured Output
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardBody className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* budget_signal */}
+          <div
+            className={cn(
+              "rounded-md border p-3 space-y-1.5",
+              budgetAmount && budgetAmount > 0
+                ? "border-[color:var(--color-success)]/40 bg-[color:var(--color-success-bg)]/30"
+                : "border-[color:var(--color-border)]",
+            )}
+          >
+            <div className="text-[10px] uppercase tracking-wider font-semibold text-[color:var(--color-muted-foreground)]">
+              budget_signal
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[color:var(--color-muted-foreground)]">amount</span>
+              <span className="font-mono font-semibold">
+                {budgetAmount ? `${(budgetAmount / 1_0000_0000).toFixed(1)}억 원` : "null"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[color:var(--color-muted-foreground)]">confidence</span>
+              <span className="font-mono font-semibold" style={{ color: confColor }}>
+                {budgetConfidence}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[color:var(--color-muted-foreground)]">timeline</span>
+              <span className="font-mono">{budgetTimeline}</span>
+            </div>
+          </div>
+
+          {/* relationship_signal + sentiment */}
+          <div className="rounded-md border border-[color:var(--color-border)] p-3 space-y-1.5">
+            <div className="text-[10px] uppercase tracking-wider font-semibold text-[color:var(--color-muted-foreground)]">
+              relationship_signal
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[color:var(--color-muted-foreground)]">tone</span>
+              <Badge tone={toneTone}>{dominantTone}</Badge>
+            </div>
+            <div className="mt-2 text-[10px] uppercase tracking-wider font-semibold text-[color:var(--color-muted-foreground)]">
+              sentiment
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Badge tone={sentimentTone}>{overallSentiment}</Badge>
+            </div>
+          </div>
+
+          {/* intent_signal */}
+          <div className="rounded-md border border-[color:var(--color-border)] p-3 space-y-2">
+            <div className="text-[10px] uppercase tracking-wider font-semibold text-[color:var(--color-muted-foreground)]">
+              intent_signal
+            </div>
+            {intentSignals.length === 0 ? (
+              <span className="text-xs text-[color:var(--color-muted-foreground)]">탐지 없음</span>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {intentSignals.map((sig, i) => (
+                  <div key={i} className="flex items-center gap-1">
+                    <Badge tone="ink">{sig.type}</Badge>
+                    <span className="text-[11px] text-[color:var(--color-foreground)]/70">{sig.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* pii_detected */}
+          <div className="rounded-md border border-[color:var(--color-border)] p-3 space-y-2">
+            <div className="text-[10px] uppercase tracking-wider font-semibold text-[color:var(--color-muted-foreground)]">
+              pii_detected
+            </div>
+            {piiTypes.length === 0 ? (
+              <span className="text-xs text-[color:var(--color-muted-foreground)]">탐지 없음</span>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {[...new Set(piiTypes)].map((t) => (
+                  <Badge key={t} tone="warning">{t}</Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* next_actions */}
+        <div className="rounded-md border border-[color:var(--color-border)] p-3 space-y-2">
+          <div className="text-[10px] uppercase tracking-wider font-semibold text-[color:var(--color-muted-foreground)]">
+            next_actions
+          </div>
+          {f.actionItems.length === 0 ? (
+            <span className="text-xs text-[color:var(--color-muted-foreground)]">탐지 없음</span>
+          ) : (
+            <ul className="space-y-1 text-xs">
+              {f.actionItems.map((a, i) => (
+                <li key={i} className="flex items-start gap-2">
+                  <span className="text-[color:var(--color-brand-ink)] mt-0.5">·</span>
+                  <Badge tone={a.ownerParty === "us" ? "ink" : "info"} className="shrink-0">
+                    {a.ownerParty === "us" ? "당사" : a.ownerParty === "client" ? "광고주" : "양측"}
+                  </Badge>
+                  <span className="text-[color:var(--color-foreground)]/85">{a.description}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* topics */}
+        <div className="rounded-md border border-[color:var(--color-border)] p-3 space-y-2">
+          <div className="text-[10px] uppercase tracking-wider font-semibold text-[color:var(--color-muted-foreground)]">
+            topics
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {f.topics.map((t, i) => (
+              <Badge key={i} tone="lime">{t.label}</Badge>
+            ))}
+            {f.topics.length === 0 && (
+              <span className="text-xs text-[color:var(--color-muted-foreground)]">탐지 없음</span>
+            )}
+          </div>
         </div>
       </CardBody>
     </Card>

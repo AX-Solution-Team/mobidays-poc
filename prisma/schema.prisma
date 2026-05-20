@@ -169,12 +169,13 @@ model Document {
 }
 
 model DocChunk {
-  id           String  @id
-  documentId   String
-  ordinal      Int
-  text         String
-  topicsJson   String  @default("[]")
-  metadataJson String  @default("{}")
+  id            String  @id
+  documentId    String
+  ordinal       Int
+  text          String
+  topicsJson    String  @default("[]")
+  metadataJson  String  @default("{}")
+  embeddingJson String? // JSON array of float32 values (text-embedding-3-small, dim=1536)
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 

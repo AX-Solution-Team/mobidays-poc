@@ -16,10 +16,12 @@ import {
   Network,
   PanelLeft,
   ScrollText,
+  Search,
   Settings2,
   ShieldCheck,
   Sparkles,
   Target,
+  UserCheck,
   Users,
 } from "lucide-react";
 
@@ -45,9 +47,11 @@ const NAV: NavSection[] = [
     title: "Knowledge Base",
     items: [
       { href: "/kb", label: "KB 개요", icon: Database },
+      { href: "/kb/graph", label: "컨텍스트 그래프 ER", icon: Network, hint: "RFP 4-4 ①" },
       { href: "/kb/match", label: "통합 ID 매칭", icon: GitMerge, hint: "RFP 4-4 ①" },
       { href: "/kb/extract", label: "비정형 데이터 처리", icon: FileSearch, hint: "RFP 4-4 ②" },
       { href: "/kb/rules", label: "룰 엔진 연계", icon: Network, hint: "RFP 4-4 ③" },
+      { href: "/kb/search", label: "AI 검색 (RAG)", icon: Search },
       { href: "/accounts", label: "광고주 360", icon: Target },
     ],
   },
@@ -58,6 +62,7 @@ const NAV: NavSection[] = [
       { href: "/agent/recommend", label: "추천 워크플로", icon: Cpu },
       { href: "/agent/messages", label: "메시지 초안", icon: MessagesSquare },
       { href: "/agent/actions", label: "다음 액션", icon: ListChecks },
+      { href: "/agent/hitl", label: "HITL 승인 게이트", icon: UserCheck },
     ],
   },
   {
@@ -73,19 +78,25 @@ const NAV: NavSection[] = [
 const STORAGE_KEY = "mobidays-demo:sidebar-collapsed";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  // Default open on first paint to avoid layout flash on initial SSR render.
-  // After mount we sync with localStorage.
   const [collapsed, setCollapsed] = useState(false);
+  // mounted tracks whether we've synced with localStorage.
+  // disableTransition suppresses the CSS animation on the very first sync
+  // so users don't see an animated open→close flash on page load.
   const [mounted, setMounted] = useState(false);
+  const [disableTransition, setDisableTransition] = useState(true);
 
   useEffect(() => {
-    setMounted(true);
+    let savedCollapsed = false;
     try {
-      const saved = window.localStorage.getItem(STORAGE_KEY);
-      if (saved === "1") setCollapsed(true);
+      savedCollapsed = window.localStorage.getItem(STORAGE_KEY) === "1";
     } catch {
       // ignore (SSR/private mode)
     }
+    setCollapsed(savedCollapsed);
+    setMounted(true);
+    // Re-enable transition after the initial state sync settles
+    const t = requestAnimationFrame(() => setDisableTransition(false));
+    return () => cancelAnimationFrame(t);
   }, []);
 
   const toggle = useCallback(() => {
@@ -100,11 +111,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const isCollapsed = collapsed && mounted;
+
   return (
     <div className="min-h-screen bg-[color:var(--color-muted)]/40 flex">
-      <Sidebar collapsed={collapsed && mounted} onToggle={toggle} />
+      <Sidebar collapsed={isCollapsed} onToggle={toggle} disableTransition={disableTransition} />
       <div className="flex-1 min-w-0 flex flex-col">
-        <TopBar collapsed={collapsed && mounted} onToggle={toggle} />
+        <TopBar collapsed={isCollapsed} onToggle={toggle} />
         <main className="flex-1 min-w-0 px-6 lg:px-10 py-6 lg:py-8">
           {children}
         </main>
@@ -117,16 +130,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 function Sidebar({
   collapsed,
   onToggle,
+  disableTransition,
 }: {
   collapsed: boolean;
   onToggle: () => void;
+  disableTransition?: boolean;
 }) {
   const pathname = usePathname();
+  // Collect all hrefs to detect if a more-specific sibling matches first.
+  const allHrefs = NAV.flatMap((s) => s.items.map((i) => i.href));
+  function isActive(href: string) {
+    if (pathname === href) return true;
+    if (href === "/") return false;
+    if (!pathname?.startsWith(href + "/")) return false;
+    // A more-specific nav item already covers this pathname → don't activate parent.
+    return !allHrefs.some(
+      (h) => h !== href && h.startsWith(href) && pathname.startsWith(h),
+    );
+  }
   return (
     <aside
       className={cn(
         "shrink-0 bg-[color:var(--color-brand-ink)] text-white sticky top-0 h-screen overflow-hidden flex flex-col",
-        "transition-[width] duration-300 ease-out",
+        !disableTransition && "transition-[width] duration-300 ease-out",
         collapsed ? "w-0" : "w-64",
       )}
       aria-hidden={collapsed}
@@ -161,19 +187,18 @@ function Sidebar({
               <ul className="space-y-0.5">
                 {section.items.map((item) => {
                   const Icon = item.icon;
-                  const active =
-                    pathname === item.href ||
-                    (item.href !== "/" && pathname?.startsWith(item.href));
+                  const active = isActive(item.href);
                   return (
                     <li key={item.href}>
                       <Link
                         href={item.href}
                         tabIndex={collapsed ? -1 : 0}
+                        onClick={(e) => (e.currentTarget as HTMLElement).blur()}
                         className={cn(
-                          "group flex items-center justify-between rounded-md px-2 py-1.5 text-[13px] transition",
+                          "group flex items-center justify-between rounded-md px-2 py-1.5 text-[13px] transition focus:outline-none",
                           active
                             ? "bg-[color:var(--color-brand-lime)] text-[color:var(--color-brand-ink)]"
-                            : "text-white/85 hover:bg-white/5",
+                            : "text-white/85 hover:bg-white/5 focus-visible:bg-white/5",
                         )}
                       >
                         <span className="flex items-center gap-2">
@@ -250,7 +275,7 @@ function TopBar({
         <span className="text-sm font-medium">통합 데모 환경</span>
         <span className="inline-flex items-center gap-1 text-[11px] text-[color:var(--color-muted-foreground)] bg-[color:var(--color-muted)] px-2 py-0.5 rounded-md">
           <span className="size-1.5 bg-[color:var(--color-success)] rounded-full" />
-          SQLite · Mock LLM · 로컬 실행
+          PostgreSQL · Vercel · LLM 연동
         </span>
       </div>
       <div className="flex items-center gap-3">

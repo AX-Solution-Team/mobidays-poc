@@ -2,10 +2,15 @@ import Link from "next/link";
 import {
   Activity as ActivityIcon,
   AlertTriangle,
+  BookOpen,
+  BrainCircuit,
   CalendarClock,
   CheckCircle2,
+  Database,
   ListChecks,
+  MessagesSquare,
   MessageSquareWarning,
+  Network,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
@@ -196,6 +201,66 @@ export default async function AgentDashboardPage() {
           ctaLabel="배정"
           emptyText="배정되지 않은 A등급 광고주 없음."
         />
+      </section>
+
+      {/* A2A 멀티에이전트 파이프라인 아키텍처 */}
+      <section className="mb-8">
+        <h2 className="text-base font-semibold tracking-tight mb-1">A2A 멀티에이전트 파이프라인 아키텍처</h2>
+        <p className="text-xs text-[color:var(--color-muted-foreground)] mb-4">
+          4개 에이전트가 순차 협업하여 초청 전략을 생성합니다.
+        </p>
+
+        {/* Agent flow */}
+        <div className="flex flex-col md:flex-row items-stretch gap-2 mb-4 overflow-x-auto pb-1">
+          {[
+            { icon: BrainCircuit, name: "Planner Agent", model: "GPT-5.2", desc: "의도 파악 + 계획" },
+            { icon: Database, name: "Data Agent", model: "GPT-4.1-nano", desc: "KB 조회 + CMID" },
+            { icon: Network, name: "Rule Agent", model: "Python", desc: "룰 평가" },
+            { icon: MessagesSquare, name: "Draft Agent", model: "GPT-5-chat", desc: "메시지 생성" },
+          ].map(({ icon: Icon, name, model, desc }, i, arr) => (
+            <div key={name} className="flex items-center gap-2 flex-1 min-w-[140px]">
+              <div className="flex-1 rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-3 py-3 flex flex-col items-center text-center gap-1.5">
+                <Icon className="size-5 text-[color:var(--color-brand-ink)]" />
+                <span className="text-xs font-semibold">{name}</span>
+                <Badge tone="ink" className="text-[10px]">{model}</Badge>
+                <span className="text-[11px] text-[color:var(--color-muted-foreground)]">{desc}</span>
+              </div>
+              {i < arr.length - 1 && (
+                <span className="text-[color:var(--color-muted-foreground)] font-bold shrink-0">→</span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Foundry Memory bar */}
+        <div className="rounded-lg border border-[color:var(--color-brand-ink)]/30 bg-[color:var(--color-muted)] px-4 py-2.5 flex items-center gap-2 mb-4">
+          <BookOpen className="size-4 text-[color:var(--color-brand-ink)] shrink-0" />
+          <span className="text-xs font-medium text-[color:var(--color-brand-ink)]">Foundry Memory</span>
+          <span className="text-xs text-[color:var(--color-muted-foreground)]">
+            장기 기억 축적 · 담당자 교체 시에도 전 맥락 유지
+          </span>
+        </div>
+
+        {/* Confidence routing */}
+        <div className="rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-4 py-3">
+          <div className="text-xs font-semibold mb-2 text-[color:var(--color-muted-foreground)] uppercase tracking-wider">신뢰도 라우팅</div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex-1 rounded-md bg-[color:var(--color-success-bg)] border border-[color:var(--color-success)]/30 px-3 py-2 text-center">
+              <div className="text-xs font-semibold text-[color:var(--color-success)]">0.92+</div>
+              <div className="text-xs text-[color:var(--color-success)]">자동 실행</div>
+            </div>
+            <div className="flex-1 rounded-md bg-[color:var(--color-warning-bg)] border border-[color:var(--color-warning)]/30 px-3 py-2 text-center">
+              <Link href="/agent/hitl" className="block hover:opacity-80 transition">
+                <div className="text-xs font-semibold text-[color:var(--color-warning)]">0.70 – 0.92</div>
+                <div className="text-xs text-[color:var(--color-warning)]">HITL 승인 게이트 →</div>
+              </Link>
+            </div>
+            <div className="flex-1 rounded-md bg-[color:var(--color-danger-bg)] border border-[color:var(--color-danger)]/30 px-3 py-2 text-center">
+              <div className="text-xs font-semibold text-[color:var(--color-danger)]">&lt; 0.70</div>
+              <div className="text-xs text-[color:var(--color-danger)]">사람 직접 판단</div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="grid grid-cols-1 md:grid-cols-2 gap-4">

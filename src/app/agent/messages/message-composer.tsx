@@ -3,10 +3,12 @@
 import { useState } from "react";
 import {
   Check,
+  CheckCircle,
   Copy,
   Loader2,
   Mail,
   PlayCircle,
+  Save,
   Send,
   Sparkles,
   Wand2,
@@ -33,6 +35,8 @@ interface Draft {
   body: string;
   variables: Record<string, string>;
   evidence: { type: string; text: string }[];
+  gmailHref?: string;
+  contactEmail?: string;
 }
 
 const PURPOSE_OPTIONS = [
@@ -69,6 +73,8 @@ export function MessageComposer({
   const [edited, setEdited] = useState<{ subject: string; body: string } | null>(null);
   const [status, setStatus] = useState<"draft" | "pending" | "approved" | "sent">("draft");
   const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const account = accounts.find((a) => a.cmid === cmid);
 
@@ -98,6 +104,28 @@ export function MessageComposer({
     await navigator.clipboard.writeText(`${edited.subject}\n\n${edited.body}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  };
+
+  const saveDraft = async () => {
+    if (!edited) return;
+    setSaving(true);
+    try {
+      await fetch("/api/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          cmid,
+          purpose,
+          channel: "Email",
+          subject: edited.subject,
+          body: edited.body,
+        }),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const gmailUrl = edited && account
@@ -303,6 +331,22 @@ export function MessageComposer({
                   <Button variant="outline" onClick={copyBody}>
                     {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
                     {copied ? "복사됨" : "복사"}
+                  </Button>
+                  {draft?.gmailHref ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => window.open(draft.gmailHref, "_blank")}
+                    >
+                      <Mail className="size-4" /> Gmail로 열기
+                    </Button>
+                  ) : (
+                    <Button variant="outline" disabled title="담당자 이메일 정보 없음">
+                      <Mail className="size-4" /> Gmail로 열기
+                    </Button>
+                  )}
+                  <Button variant="outline" onClick={saveDraft} disabled={saving || saved}>
+                    {saved ? <CheckCircle className="size-4" /> : <Save className="size-4" />}
+                    {saved ? "저장됨 ✓" : saving ? "저장 중…" : "초안 저장"}
                   </Button>
                   {status === "draft" && (
                     <Button variant="secondary" onClick={() => setStatus("pending")}>

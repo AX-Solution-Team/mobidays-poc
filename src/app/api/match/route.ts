@@ -28,8 +28,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 
-  // Slight artificial delay so the UI animation feels meaningful (~600ms)
-  await new Promise((r) => setTimeout(r, 350 + Math.random() * 300));
+  await new Promise((r) => setTimeout(r, 150 + Math.random() * 150));
 
   const result = await matchRecord(body);
   return NextResponse.json(result);

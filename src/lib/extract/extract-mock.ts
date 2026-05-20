@@ -1,6 +1,6 @@
-// Mock LLM-based meeting record extractor.
-// Pattern-matches well-known sample meetings and returns a realistic JSON.
-// For unfamiliar text, falls back to heuristic extraction.
+// Meeting record extractor — real GPT-4o call with heuristic fallback.
+
+import { getOpenAI, MODELS } from "@/lib/openai";
 
 export interface MeetingAttendee {
   name: string;
@@ -232,9 +232,7 @@ function detectCompetitors(text: string): string[] {
   return out;
 }
 
-export async function extractMeetingMock(text: string): Promise<MeetingExtraction> {
-  // Simulate LLM latency
-  await new Promise((r) => setTimeout(r, 1200 + Math.random() * 800));
+async function extractMeetingHeuristic(text: string): Promise<MeetingExtraction> {
   const { attendees, detectedCompany } = detectCompanyAndAttendees(text);
   const topics = detectTopics(text);
   if (detectedCompany && topics.length === 0) {
@@ -261,4 +259,82 @@ export async function extractMeetingMock(text: string): Promise<MeetingExtractio
     competitorsMentioned: detectCompetitors(text),
     riskFlags: /가격 민감|경쟁/i.test(text) ? ["가격 민감도 ↑"] : [],
   };
+}
+
+export async function extractMeetingMock(text: string): Promise<MeetingExtraction> {
+  try {
+    const systemPrompt = `당신은 회의록 구조화 전문가입니다. 한국어 비즈니스 미팅 노트를 분석하여 JSON으로 추출합니다.`;
+
+    const userPrompt = `다음 미팅 노트를 분석하여 아래 JSON 스키마로 추출하세요:
+{
+  "occurredAt": "ISO8601 or null",
+  "channel": "in_person|video|phone|other",
+  "attendees": [{"name":"","party":"us|client|partner","title":"","companyName":""}],
+  "topics": [{"label":"","summary":"","sentiment":"positive|neutral|negative|mixed","evidenceSpan":""}],
+  "actionItems": [{"ownerParty":"us|client|both","ownerName":"","description":"","dueBy":""}],
+  "budgetSignals": [{"amountKrw":0,"scope":"","horizon":"annual|quarter|campaign"}],
+  "productsMentioned": [],
+  "competitorsMentioned": [],
+  "riskFlags": [],
+  "nextMeeting": {"at":"","channel":""}
+}
+
+미팅 노트:
+${text}`;
+
+    const completion = await getOpenAI().chat.completions.create({
+      model: MODELS.strong,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.1,
+      max_tokens: 1500,
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(raw) as Partial<{
+      occurredAt: string | null;
+      channel: string;
+      attendees: Array<{ name: string; party: string; title?: string; companyName?: string }>;
+      topics: Array<{ label: string; summary: string; sentiment: string; evidenceSpan: string }>;
+      actionItems: Array<{ ownerParty: string; ownerName?: string; description: string; dueBy?: string }>;
+      budgetSignals: Array<{ amountKrw: number; scope: string; horizon: string }>;
+      productsMentioned: string[];
+      competitorsMentioned: string[];
+      riskFlags: string[];
+      nextMeeting: { at: string; channel?: string } | null;
+    }>;
+
+    return {
+      occurredAt: parsed.occurredAt ?? null,
+      channel: (parsed.channel as MeetingExtraction["channel"]) ?? "in_person",
+      attendees: (parsed.attendees ?? []).map((a) => ({
+        name: a.name,
+        party: (a.party as MeetingAttendee["party"]) ?? "client",
+        title: a.title,
+        companyName: a.companyName,
+      })),
+      topics: (parsed.topics ?? []).map((t) => ({
+        label: t.label,
+        summary: t.summary,
+        evidenceSpan: t.evidenceSpan,
+        sentiment: (t.sentiment as MeetingTopic["sentiment"]) ?? "neutral",
+      })),
+      actionItems: (parsed.actionItems ?? []).map((ai) => ({
+        ownerParty: (ai.ownerParty as ActionItem["ownerParty"]) ?? "both",
+        ownerName: ai.ownerName,
+        description: ai.description,
+        dueBy: ai.dueBy ?? null,
+      })),
+      budgetSignals: parsed.budgetSignals ?? [],
+      productsMentioned: parsed.productsMentioned ?? [],
+      competitorsMentioned: parsed.competitorsMentioned ?? [],
+      riskFlags: parsed.riskFlags ?? [],
+      nextMeeting: parsed.nextMeeting?.at ? parsed.nextMeeting : null,
+    };
+  } catch {
+    return extractMeetingHeuristic(text);
+  }
 }

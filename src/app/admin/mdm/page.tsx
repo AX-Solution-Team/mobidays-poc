@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 export default async function MdmReviewPage() {
   const candidates = await prisma.mdmCandidate.findMany({
+    where: { status: "pending" },
     orderBy: { score: "desc" },
   });
 
@@ -36,6 +37,12 @@ export default async function MdmReviewPage() {
           { label: "MDM" },
         ]}
       />
+
+      <div className="flex items-center gap-2 mb-4">
+        <Badge tone={candidates.length > 0 ? "warning" : "success"}>
+          대기 중 {candidates.length}건
+        </Badge>
+      </div>
 
       {candidates.length === 0 && (
         <Card>
@@ -108,6 +115,24 @@ export default async function MdmReviewPage() {
                     <div className="text-[11px] text-[color:var(--color-muted-foreground)] mt-0.5">
                       {right.system} · {right.recordId}
                     </div>
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <div className="text-xs font-semibold mb-1.5">신뢰도 (Confidence)</div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-2 rounded-full bg-[color:var(--color-border)] overflow-hidden">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${Math.round(c.score * 100)}%`,
+                          background: c.score >= 0.85 ? "var(--color-warning)" : "var(--color-danger)",
+                        }}
+                      />
+                    </div>
+                    <span className="text-xs tabular-nums font-semibold w-10 text-right">
+                      {Math.round(c.score * 100)}%
+                    </span>
                   </div>
                 </div>
 

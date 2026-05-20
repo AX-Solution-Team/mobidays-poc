@@ -27,28 +27,28 @@ export async function POST(req: Request) {
 
   // Step timings for the demo (simulate realistic latencies).
   const t0 = Date.now();
-  const stage1End = await delayStep(150);
+  const stage1End = await delayStep(60);
   const cleaned = preClean(text);
   const stage2End = Date.now();
 
-  await delay(380);
+  await delay(150);
   const pii = redactPII(cleaned);
   const stage3End = Date.now();
 
-  await delay(120); // start LLM call indicator
+  await delay(50);
   const fields = await extractMeetingMock(pii.redacted);
   const stage4End = Date.now();
 
-  await delay(180);
+  await delay(80);
   // Entity linking stub — match by detectedCompany name in attendees
   const linked = linkEntities(fields.attendees);
   const stage5End = Date.now();
 
-  await delay(160);
+  await delay(60);
   const chunks = semanticChunk(pii.redacted, fields.topics.map((t) => t.label));
   const stage6End = Date.now();
 
-  await delay(420); // embed
+  await delay(180); // embed
   const embeddingMeta = {
     model: "voyage-multilingual-2",
     dim: 1024,
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
   };
   const stage7End = Date.now();
 
-  await delay(120); // index
+  await delay(50); // index
   const stage8End = Date.now();
 
   return NextResponse.json({

@@ -1,4 +1,6 @@
-// Mock message drafting — purpose-based templates with personalization slots.
+// Message drafting — real GPT-4o call with template fallback.
+
+import { getOpenAI, MODELS } from "@/lib/openai";
 
 export type MessagePurpose =
   | "Invitation"
@@ -27,12 +29,88 @@ export interface DraftOutput {
 }
 
 export async function draftMessage(input: DraftInput): Promise<DraftOutput> {
-  await new Promise((r) => setTimeout(r, 700 + Math.random() * 600));
+  try {
+    const tone = input.tone ?? "formal";
+    const toneDesc =
+      tone === "formal"
+        ? "격식체/정중"
+        : tone === "friendly"
+        ? "친근한 비즈니스"
+        : "간결";
+    const signature = input.signature ?? "모비데이즈 세일즈 / 이지원";
+
+    const systemPrompt = `당신은 모비데이즈 세일즈 담당자입니다. 광고주에게 보낼 한국어 비즈니스 이메일을 작성합니다.
+- 톤: ${tone}=${toneDesc}
+- 길이: 본문 150-250자 (concise는 100자 이내)
+- 서명: 모비데이즈 세일즈 / ${signature}
+응답은 반드시 JSON으로만: {"subject": "...", "body": "..."}`;
+
+    const nameWithTitle = input.contactTitle
+      ? `${input.contactName ?? "담당자"} ${input.contactTitle}`
+      : `${input.contactName ?? "담당자"}`;
+
+    const userPrompt = [
+      `목적: ${input.purpose}`,
+      `광고주명: ${input.accountName}`,
+      `수신자: ${nameWithTitle}`,
+      input.topics && input.topics.length > 0
+        ? `관심 주제: ${input.topics.join(", ")}`
+        : null,
+      input.sessionTitle ? `세션 제목: ${input.sessionTitle}` : null,
+      input.personalTouch ? `개인화 메모: ${input.personalTouch}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const completion = await getOpenAI().chat.completions.create({
+      model: MODELS.strong,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      max_tokens: 800,
+      temperature: 0.7,
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(raw) as { subject?: string; body?: string };
+    const subject = parsed.subject ?? "";
+    const body = parsed.body ?? "";
+
+    return {
+      subject,
+      body,
+      variables: {
+        account_name: input.accountName,
+        contact_name: input.contactName ?? "",
+        contact_title: input.contactTitle ?? "",
+        first_topic: input.topics?.[0] ?? "",
+        session_title: input.sessionTitle ?? "",
+      },
+      evidence: [
+        input.personalTouch
+          ? { type: "meeting_note", text: input.personalTouch.slice(0, 200) }
+          : {
+              type: "topic_match",
+              text: `요청 주제: ${input.topics?.join(", ") ?? "—"}`,
+            },
+      ],
+    };
+  } catch {
+    return draftMessageFallback(input);
+  }
+}
+
+async function draftMessageFallback(input: DraftInput): Promise<DraftOutput> {
   const tone = input.tone ?? "formal";
+  const nameWithTitle = input.contactTitle
+    ? `${input.contactName ?? "담당자"} ${input.contactTitle}`
+    : `${input.contactName ?? "담당자"}`;
   const greet =
     tone === "friendly"
-      ? `${input.contactName ?? "담당자"}님 안녕하세요,`
-      : `${input.contactName ?? "담당자"}${input.contactTitle ? " " + input.contactTitle : ""}님께,`;
+      ? `${nameWithTitle}님 안녕하세요,`
+      : `${nameWithTitle}님께,`;
 
   const signature = input.signature ?? "모비데이즈 세일즈 / 이지원";
   const topicLine =
@@ -55,11 +133,17 @@ export async function draftMessage(input: DraftInput): Promise<DraftOutput> {
         input.sessionTitle
           ? `특히 «${input.sessionTitle}» 세션은 말씀하신 토픽과 직접 연결되어 있어서 권해드립니다.`
           : `요청 주제와 관련된 트랙을 별도 큐레이션하여 안내드릴 예정입니다.`,
+        input.topics && input.topics.length > 0
+          ? `특히 ${input.topics[0]} 관련 세션이 포함되어 있어 말씀하신 니즈와 직접 연결됩니다.`
+          : ``,
         ``,
         `편하신 시간에 회신주시면 자리 미리 잡아두겠습니다.`,
         ``,
         `${signature} 드림`,
-      ].join("\n");
+        input.personalTouch ? `\nP.S. ${input.personalTouch}` : ``,
+      ]
+        .filter((line) => line !== undefined)
+        .join("\n");
       break;
     case "Proposal":
       subject = `${input.accountName} 캠페인 제안 — ${topicLine}`;
@@ -126,7 +210,10 @@ export async function draftMessage(input: DraftInput): Promise<DraftOutput> {
     evidence: [
       input.personalTouch
         ? { type: "meeting_note", text: input.personalTouch.slice(0, 200) }
-        : { type: "topic_match", text: `요청 주제: ${input.topics?.join(", ") ?? "—"}` },
+        : {
+            type: "topic_match",
+            text: `요청 주제: ${input.topics?.join(", ") ?? "—"}`,
+          },
     ],
   };
 }
